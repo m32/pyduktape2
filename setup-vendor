@@ -1,0 +1,12 @@
+#!/bin/bash
+STOP=/devel/00mirror-cvs/00-llvm/00-duktape/duktape
+python $STOP/tools/configure.py \
+    --config-metadata $STOP/config \
+    --source-directory $STOP/src-input \
+    --option-file $STOP/config/examples/debugger_support.yaml \
+    --option-file $STOP/config/examples/enable_fastint.yaml \
+    --output-directory vendor
+cp $STOP/extras/module-node/duk_module_node.c vendor/
+cp $STOP/extras/module-node/duk_module_node.h vendor/
+cp $STOP/extras/module-duktape/duk_module_duktape.c vendor/
+cp $STOP/extras/module-duktape/duk_module_duktape.h vendor/

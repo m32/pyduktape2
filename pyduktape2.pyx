@@ -111,6 +111,11 @@ cdef extern from 'vendor/duk_module_duktape.c':
     cdef void duk_module_duktape_init(duk_context *ctx)
 
 
+cdef extern from 'vendor/duk_module_node.c':
+    cdef duk_ret_t duk_module_node_peval_main(duk_context *ctx, const char *path);
+    cdef void duk_module_node_init(duk_context *ctx);
+
+
 class DuktapeError(Exception):
     pass
 
@@ -140,7 +145,6 @@ cdef class DuktapeContext(object):
 
     def __cinit__(self):
         self.thread_id = threading.current_thread().ident
-        self.js_base_path = ''
         self.next_ref_index = -1
 
         self.registered_objects = {}
@@ -154,7 +158,8 @@ cdef class DuktapeContext(object):
         set_python_context(self.ctx, self)
 
         duk_module_duktape_init(self.ctx)
-        self._setup_module_search_function()
+        #self._setup_module_search_function()
+        self._setup_module_search_function_node()
 
     cdef void _setup_module_search_function(self):
         duk_get_global_string(self.ctx, 'Duktape')
@@ -162,9 +167,24 @@ cdef class DuktapeContext(object):
         duk_put_prop_string(self.ctx, -2, 'modSearch')
         duk_pop(self.ctx)
 
+    cdef void _setup_module_search_function_node(self):
+        duk_push_object(self.ctx)
+        duk_push_c_function(self.ctx, cb_resolve_module_node, DUK_VARARGS)
+        duk_put_prop_string(self.ctx, -2, "resolve")
+        duk_push_c_function(self.ctx, cb_load_module_node, DUK_VARARGS)
+        duk_put_prop_string(self.ctx, -2, "load")
+        duk_module_node_init(self.ctx)
+
+    def get_module(self, module_id, parent_id):
+        raise TypeError('Javascript source path must be a string')
+
+    def load_module(self, module_id, filename):
+        raise TypeError('Javascript source path must be a string')
+
     def _check_thread(self):
-        if threading.current_thread().ident != self.thread_id:
-            raise DuktapeThreadError()
+        #if threading.current_thread().ident != self.thread_id:
+        #    raise DuktapeThreadError()
+        pass
 
     def set_globals(self, **kwargs):
         self._check_thread()
@@ -188,11 +208,8 @@ cdef class DuktapeContext(object):
 
         return value
 
-    def set_base_path(self, path):
-        if not isinstance(path, basestring):
-            raise TypeError('Path must be a string, {} found'.format(type(path)))
-
-        self.js_base_path = path
+    def peval(self, path):
+        return duk_module_node_peval_main(self.ctx, path);
 
     def eval_js(self, src):
         if not isinstance(src, basestring):
@@ -204,20 +221,10 @@ cdef class DuktapeContext(object):
         return self._eval_js(eval_string)
 
     def eval_js_file(self, src_path):
-        src_path = str(src_path)
-        with open(self.get_file_path(src_path), 'r', encoding='utf-8') as f:
+        with open(str(src_path), 'r', encoding='utf-8') as f:
             code = f.read()
 
         return self.eval_js(code)
-
-    def get_file_path(self, src_path):
-        if not src_path.endswith('.js'):
-            src_path = '{}.js'.format(src_path)
-
-        if not os.path.isabs(src_path):
-            src_path = os.path.join(self.js_base_path, src_path)
-
-        return src_path
 
     def _eval_js(self, eval_function):
         self._check_thread()
@@ -506,8 +513,39 @@ cdef duk_ret_t module_search(duk_context *ctx):
             source = module.read()
     except:
         duk_error(ctx, DUK_ERR_ERROR, 'Could not load module: %s', module_id)
+        return 0
 
     duk_push_string(ctx, source.encode('utf-8'))
+
+    return 1
+
+
+cdef duk_ret_t cb_resolve_module_node(duk_context *ctx):
+    py_ctx = get_python_context(ctx)
+    module_id = duk_require_string(ctx, 0);
+    parent_id = duk_require_string(ctx, 1);
+
+    try:
+        source = py_ctx.get_module(module_id, parent_id)
+        duk_push_string(ctx, source)
+    except:
+        duk_error(ctx, DUK_ERR_ERROR, 'Could not resolve module: %s', module_id)
+        return 0
+
+    return 1
+
+
+cdef duk_ret_t cb_load_module_node(duk_context *ctx):
+    py_ctx = get_python_context(ctx)
+
+    module_id = duk_require_string(ctx, 0);
+
+    try:
+        code = py_ctx.load_module(module_id)
+        duk_push_string(ctx, code)
+    except:
+        duk_error(ctx, DUK_ERR_ERROR, 'Could not load module: %s', module_id)
+        return 0
 
     return 1
 
@@ -739,6 +777,7 @@ cdef void push_callback(duk_context *ctx, object fn) except *:
 cdef duk_ret_t callback(duk_context *ctx):
     if duk_is_constructor_call(ctx):
         duk_error(ctx, DUK_ERR_ERROR, 'can\'t use new on python objects')
+        return 0
 
     py_ctx = get_python_context(ctx)
 
@@ -768,3 +807,4 @@ def wrap_python_exception(DuktapeContext py_ctx):
         error = traceback.format_exc()
         error = error.replace('%', '%%')
         duk_error(py_ctx.ctx, DUK_ERR_ERROR, error.encode('utf-8'))
+        return 0

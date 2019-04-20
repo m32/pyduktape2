@@ -1,3 +1,4 @@
+#!/usr/bin/env vpython3
 from os import path
 
 from setuptools import setup, find_packages, Extension
@@ -9,8 +10,13 @@ with open(readme_path, encoding='utf-8') as readme:
 
 extensions = [
     Extension(
-      'pyduktape2',
-      ['pyduktape2.pyx']
+        'pyduktape2',
+        sources=[
+            'pyduktape2.pyx'
+        ],
+        extra_compile_args=[
+            '-DDUK_F_NO_STDINT_H',
+        ]
     )
 ]
 
@@ -32,8 +38,15 @@ setup(
         'Topic :: Software Development :: Interpreters',
     ],
     packages=find_packages(exclude=['tests']),
-    setup_requires=['setuptools>=18.0', 'Cython'],
+    setup_requires=[
+        'setuptools>=18.0',
+        'Cython'
+    ],
     test_suite='tests',
     install_requires=['Cython'],
     ext_modules=extensions,
+    package_data={
+        'duktape2': ['jscore/*.js', 'jsmodules/*.js', 'jsmodules/react/*.js',
+                  'jsmodules/less/*/*.js', 'jsmodules/less/*/*/*.js'],
+    },
 )
